@@ -1,0 +1,273 @@
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+local Events = RS:WaitForChild("Events")
+local TroopPlace = Events:WaitForChild("TroopPlace")
+local TroopEvent = Events:WaitForChild("TroopEvent")
+local SkipWaveRemote = Events:WaitForChild("SkipWave")
+local ModeVote = Events:WaitForChild("ModeVote")
+local UpdateTargeting = Events:WaitForChild("UpdateTargeting")
+
+local TroopFolder = workspace:WaitForChild("Troop")
+local HeroFolder = RS:WaitForChild("Troops")
+local PlayerGui = player:WaitForChild("PlayerGui")
+
+-- Upgrade prices by hero and level
+local UpgradePrices = {
+    ["Chef"] = {[1] = 110, [2] = 1000, [3] = 2200, [4] = 3700, [5] = 6000},
+    ["Wizard"] = {[1] = 100, [2] = 430, [3] = 1500, [4] = 2400, [5] = 4500},
+    ["Hotdog Frank"] = {[1] = 135, [2] = 900, [3] = 1800, [4] = 3000, [5] = 5200},
+    ["Volt"] = {[1] = 170, [2] = 1200, [3] = 2800, [4] = 5000, [5] = 6800},
+    ["Yasuke"] = {[1] = 260, [2] = 1100, [3] = 1800, [4] = 3500, [5] = 6700},
+    ["Mako"] = {[1] = 110, [2] = 1000, [3] = 2500, [4] = 3500, [5] = 6000},
+    ["Scientist"] = {[1] = 250, [2] = 1200, [3] = 2500, [4] = 4500, [5] = 8000},
+    ["Fracture"] = {[1] = 130, [2] = 900, [3] = 2100, [4] = 3700, [5] = 6800},
+    ["Bunny"] = {[1] = 110, [2] = 650, [3] = 2400, [4] = 2700, [5] = 3500},
+    ["Beebo"] = {[1] = 120, [2] = 900, [3] = 2300, [4] = 3200, [5] = 5500},
+    ["Voca"] = {[1] = 120, [2] = 1000, [3] = 3200, [4] = 5200, [5] = 6700},
+    ["Branch"] = {[1] = 150, [2] = 800, [3] = 2900, [4] = 4200, [5] = 6200},
+    ["Wafer"] = {[1] = 120, [2] = 1300, [3] = 2700, [4] = 4000, [5] = 6000},
+    ["Keith"] = {[1] = 280, [2] = 1300, [3] = 2000, [4] = 2800, [5] = 3500},
+    ["Sparks Kilowatt"] = {[1] = 150, [2] = 800, [3] = 2500, [4] = 4000, [5] = 5500},
+    ["Soda Pop"] = {[1] = 140, [2] = 950, [3] = 2600, [4] = 4600, [5] = 5500},
+    ["Quinn"] = {[1] = 150, [2] = 1350, [3] = 3600, [4] = 5600, [5] = 7000},
+    ["Lure"] = {[1] = 160, [2] = 950, [3] = 2500, [4] = 4250, [5] = 6000},
+    ["Slime King"] = {[1] = 700, [2] = 1500, [3] = 2500, [4] = 3800, [5] = 6000},
+    ["Kart Kid"] = {[1] = 650, [2] = 1400, [3] = 2500, [4] = 4000, [5] = 6500},
+    ["Jester"] = {[1] = 800, [2] = 3500, [3] = 5500, [4] = 7500, [5] = 10000},
+    ["Hayes"] = {[1] = 650, [2] = 2500, [3] = 5000, [4] = 7000, [5] = 10000},
+    ["Buzzer"] = {[1] = 430, [2] = 2100, [3] = 4200, [4] = 6200, [5] = 8000},
+    ["Oddport"] = {[1] = 720, [2] = 1500, [3] = 2700, [4] = 4200, [5] = 6800},
+    ["Stella"] = {[1] = 600, [2] = 2000, [3] = 3200, [4] = 4400, [5] = 6800},
+    ["El Goblino"] = {[1] = 350, [2] = 1800, [3] = 3000, [4] = 5200, [5] = 6700},
+    ["Nuki Launcher"] = {[1] = 580, [2] = 3500, [3] = 6000, [4] = 8500, [5] = 10000},
+    ["Byte"] = {[1] = 500, [2] = 2500, [3] = 3400, [4] = 4700, [5] = 7000},
+    ["Dumpster Child"] = {[1] = 600, [2] = 1100, [3] = 2500, [4] = 3800, [5] = 6000},
+    ["Lemonade Cat"] = {[1] = 200, [2] = 900, [3] = 1700, [4] = 2800, [5] = 4200},
+    ["Maitake"] = {[1] = 350, [2] = 1500, [3] = 2200, [4] = 5600, [5] = 6800},
+    ["Spectre"] = {[1] = 500, [2] = 1700, [3] = 3300, [4] = 4000, [5] = 7900},
+    ["Balloon Pal"] = {[1] = 350, [2] = 1600, [3] = 2300, [4] = 3200, [5] = 6000},
+    ["Discount Dog"] = {[1] = 400, [2] = 1200, [3] = 2500, [4] = 3500, [5] = 5500}
+}
+
+local State = {
+    EventQueue = {},
+    Running = false,
+    Tracked = {},
+    OwnedByName = {},
+}
+
+-- Utility Functions
+local function getMana()
+    local gui = PlayerGui:FindFirstChild("Amount", true)
+    if not gui then return 0 end
+    local text = gui.Text:lower()
+    if text:find("inf") then return math.huge end
+    return tonumber(text:match("%d+")) or 0
+end
+
+local function getSkipValue()
+    local gui = PlayerGui:FindFirstChild("SkipNum", true)
+    return gui and tonumber(gui.Text:match("(%d+)")) or nil
+end
+
+local function findTroopAtPos(pos)
+    local closest, bestDist = nil, 5
+    for _, troop in ipairs(TroopFolder:GetChildren()) do
+        if not State.Tracked[troop] then
+            local tPos = troop:GetModelCFrame().Position
+            local dist = (tPos - pos).Magnitude
+            if dist < bestDist then
+                bestDist = dist
+                closest = troop
+            end
+        end
+    end
+    return closest
+end
+
+-- INTEGRATED AUTO SKIP LOGIC
+local function runAutoSkipUI(targetState)
+    -- Safe path definitions to prevent yielding errors in the main loop
+    local menu = PlayerGui:FindFirstChild("Menu")
+    local autoSkipValue = menu and menu:FindFirstChild("Info") and menu.Info:FindFirstChild("AutoSkip")
+    
+    local interfaceTab = menu and menu:FindFirstChild("Setting") and menu.Setting:FindFirstChild("Tabs") and menu.Setting.Tabs:FindFirstChild("Interface")
+    local skipFrame = menu and menu:FindFirstChild("Skip")
+
+    local paths = {
+        interfaceTab and interfaceTab:FindFirstChild("CheckBoxSKIP"),
+        skipFrame and skipFrame:FindFirstChild("Auto")
+    }
+
+    for _, btn in ipairs(paths) do
+        if btn then
+            -- If it's an ObjectValue, get the real button
+            local realBtn = btn:IsA("ObjectValue") and btn.Value or btn
+            
+            if realBtn then
+                -- Force the visual checkmark first
+                pcall(function()
+                    local check = realBtn:FindFirstChildWhichIsA("ImageLabel", true)
+                    if check then check.Visible = targetState end
+                end)
+
+                -- Fire the click with dummy input to prevent 'KeyCode' module errors
+                pcall(function()
+                    if firesignal then
+                        firesignal(realBtn.MouseButton1Click, {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin})
+                        firesignal(realBtn.Activated, {UserInputType = Enum.UserInputType.MouseButton1, UserInputState = Enum.UserInputState.Begin})
+                    elseif getconnections then
+                        for _, con in pairs(getconnections(realBtn.MouseButton1Click)) do con:Fire() end
+                    end
+                end)
+            end
+        end
+    end
+
+    -- DATA SYNC
+    if autoSkipValue then
+        autoSkipValue.Value = targetState
+    end
+    
+    if targetState == true then
+        SkipWaveRemote:FireServer()
+    end
+end
+
+-- Global API
+getgenv().QueuePlace = function(name, x, y, z)
+    table.insert(State.EventQueue, {type = "place", name = name, pos = Vector3.new(x, y, z)})
+end
+getgenv().QueueUpgrade = function(name, index, level)
+    table.insert(State.EventQueue, {type = "upgrade", name = name, index = index, level = level})
+end
+getgenv().QueueWaitMana = function(amt)
+    table.insert(State.EventQueue, {type = "wait_mana", amount = amt})
+end
+getgenv().QueueSkip = function()
+    table.insert(State.EventQueue, {type = "skip"})
+end
+getgenv().EnableAutoSkip = function()
+    table.insert(State.EventQueue, {type = "toggle_autoskip", target = true})
+end
+getgenv().DisableAutoSkip = function()
+    table.insert(State.EventQueue, {type = "toggle_autoskip", target = false})
+end
+getgenv().VoteMode = function(mode)
+    table.insert(State.EventQueue, {type = "mode", mode = mode})
+end
+getgenv().QueueSell = function(name, index)
+    table.insert(State.EventQueue, {type = "sell", name = name, index = index})
+end
+getgenv().QueueBulkSell = function(name)
+    table.insert(State.EventQueue, {type = "bulk_sell", name = name})
+end
+getgenv().QueueAbility = function(name, index)
+    table.insert(State.EventQueue, {type = "ability", name = name, index = index})
+end
+getgenv().QueueTarget = function(name, index, targetMode)
+    table.insert(State.EventQueue, {type = "target", name = name, index = index, targetMode = targetMode})
+end
+getgenv().QueueBulk = function(name)
+    table.insert(State.EventQueue, {type = "bulk_upgrade", name = name})
+end
+getgenv().ClearQueue = function()
+    State.EventQueue = {}
+    State.OwnedByName = {}
+    State.Tracked = {}
+end
+
+getgenv().StartAutomation = function()
+    if State.Running then return end
+    State.Running = true
+    task.spawn(function()
+        while #State.EventQueue > 0 do
+            local taskData = State.EventQueue[1]
+            local currentMana = getMana()
+
+            if taskData.type == "wait_mana" then
+                if currentMana >= taskData.amount then table.remove(State.EventQueue, 1) end
+
+            elseif taskData.type == "toggle_autoskip" then
+                table.remove(State.EventQueue, 1)
+                runAutoSkipUI(taskData.target)
+
+            elseif taskData.type == "mode" then
+                table.remove(State.EventQueue, 1)
+                ModeVote:FireServer(taskData.mode)
+
+            elseif taskData.type == "skip" then
+                if getSkipValue() == 0 then
+                    table.remove(State.EventQueue, 1)
+                    SkipWaveRemote:FireServer()
+                    task.wait(0.2)
+                end
+
+            elseif taskData.type == "place" then
+                local cost = (UpgradePrices[taskData.name] and UpgradePrices[taskData.name][1]) or 0
+                if currentMana >= cost then
+                    table.remove(State.EventQueue, 1)
+                    local heroAsset = HeroFolder:FindFirstChild(taskData.name)
+                    if heroAsset then
+                        TroopPlace:FireServer(heroAsset, taskData.pos, 0)
+                        task.wait(0.35)
+                        local actualModel = findTroopAtPos(taskData.pos)
+                        if actualModel then
+                            State.Tracked[actualModel] = true
+                            State.OwnedByName[taskData.name] = State.OwnedByName[taskData.name] or {}
+                            table.insert(State.OwnedByName[taskData.name], actualModel)
+                        end
+                    end
+                end
+
+            elseif taskData.type == "upgrade" then
+                local cost = (UpgradePrices[taskData.name] and UpgradePrices[taskData.name][taskData.level]) or 0
+                if currentMana >= cost then
+                    local model = (State.OwnedByName[taskData.name] or {})[taskData.index]
+                    if model and model.Parent == TroopFolder then
+                        table.remove(State.EventQueue, 1)
+                        TroopEvent:FireServer("Upgrade", model)
+                        task.wait(0.15)
+                    else table.remove(State.EventQueue, 1) end
+                end
+
+            elseif taskData.type == "bulk_upgrade" then
+                table.remove(State.EventQueue, 1)
+                local troops = State.OwnedByName[taskData.name] or {}
+                for _, model in ipairs(troops) do
+                    if model and model.Parent == TroopFolder then
+                        TroopEvent:FireServer("Upgrade", model)
+                        task.wait(0.05)
+                    end
+                end
+
+            elseif taskData.type == "sell" then
+                table.remove(State.EventQueue, 1)
+                local model = (State.OwnedByName[taskData.name] or {})[taskData.index]
+                if model then 
+                    TroopEvent:FireServer("Sell", model)
+                    table.remove(State.OwnedByName[taskData.name], taskData.index)
+                end
+
+            elseif taskData.type == "bulk_sell" then
+                table.remove(State.EventQueue, 1)
+                TroopEvent:FireServer("BulkSell", nil, taskData.name)
+                State.OwnedByName[taskData.name] = {}
+
+            elseif taskData.type == "ability" then
+                table.remove(State.EventQueue, 1)
+                local model = (State.OwnedByName[taskData.name] or {})[taskData.index]
+                if model then TroopEvent:FireServer("Ability", model) end
+
+            elseif taskData.type == "target" then
+                table.remove(State.EventQueue, 1)
+                local model = (State.OwnedByName[taskData.name] or {})[taskData.index]
+                if model then UpdateTargeting:FireServer(model, taskData.targetMode) end
+            end
+            task.wait(0.1)
+        end
+        State.Running = false
+    end)
+end
