@@ -1,0 +1,1089 @@
+local CONFIG = {
+    STEWFIELD_URL = "https://raw.githubusercontent.com/stewingit/gen2/refs/heads/main/Stewfield",
+    ENGINE_LINK   = "https://raw.githubusercontent.com/stewingit/UTH/refs/heads/main/Engine",
+    SCRIPT_URL    = "https://raw.githubusercontent.com/stewingit/UTH/refs/heads/main/Script",
+    FOLDER        = "UTH Logged Strats",
+    CONTEXT       = "auto",
+}
+
+local genv = getgenv()
+if genv.UTH_Session then
+    local old = genv.UTH_Session
+    old.Alive = false
+    for _, c in ipairs(old.Connections) do pcall(function() c:Disconnect() end) end
+    if old.Window then pcall(function() old.Window:Unload() end) end
+end
+local Session = {Alive = true, Connections = {}, Window = nil}
+genv.UTH_Session = Session
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local RS         = game:GetService("ReplicatedStorage")
+local Players    = game:GetService("Players")
+local Workspace  = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local lp         = Players.LocalPlayer
+local pGui       = lp:WaitForChild("PlayerGui")
+
+local qot = queue_on_teleport or queueteleport or (syn and syn.queue_on_teleport)
+
+local function detectContext()
+    local forced = genv.UTH_CONTEXT or CONFIG.CONTEXT
+    if forced == "lobby" or forced == "match" then return forced end
+    local menu = pGui:FindFirstChild("Menu")
+    local info = menu and menu:FindFirstChild("Info")
+    if Workspace:FindFirstChild("Troop") and info and info:FindFirstChild("AutoSkip") then
+        return "match"
+    end
+    return "lobby"
+end
+local Context = detectContext()
+genv.UTH_CONTEXT = nil
+
+local Stewfield = loadstring(game:HttpGet(CONFIG.STEWFIELD_URL))()
+
+local Window = Stewfield:CreateWindow({
+    name = "Ultimate Tower Heroes",
+    subtitle = "Credits to stew",
+    icon = "castle",
+    configuration = {
+        autoSave = true, autoLoad = true,
+        fileName = Context == "match" and "UTHMatchSave" or "UTHSave",
+        customFolder = "UTH_Configs",
+    },
+})
+Session.Window = Window
+pcall(function() Window:CreateTag({text = Context == "match" and "In Match" or "Lobby"}) end)
+
+local function notify(title, content, icon, duration)
+    pcall(function()
+        Window:Notify({title = title, content = content, icon = icon, duration = duration or 3})
+    end)
+end
+
+local function CreateRadioRow(parent, flagPrefix, items, default, onChange)
+    local row = parent:CreateGroup({direction = "row"})
+    local toggles = {}
+
+    local function current()
+        for _, item in ipairs(items) do
+            if toggles[item.value] and toggles[item.value].value then return item.value end
+        end
+        return default
+    end
+
+    local function select(value)
+        for _, item in ipairs(items) do
+            local t = toggles[item.value]
+            local want = (item.value == value)
+            if t and t.value ~= want then t:Set(want, true) end
+        end
+        if onChange then onChange(value) end
+    end
+
+    for _, item in ipairs(items) do
+        toggles[item.value] = row:CreateToggle({
+            name = item.label,
+            flag = flagPrefix .. item.label,
+            value = (item.value == default),
+            callback = function(on)
+                if on then
+                    select(item.value)
+                else
+
+                    local anyOn = false
+                    for v, t in pairs(toggles) do if v ~= item.value and t.value then anyOn = true end end
+                    if not anyOn then toggles[item.value]:Set(true, true) end
+                end
+            end,
+        })
+    end
+    return {Get = current, Set = select}
+end
+
+local function toList(t) local l = {} for k in pairs(t) do table.insert(l, k) end table.sort(l) return l end
+
+local function BuildLobby()
+    local Events      = RS:WaitForChild("Events", 10)
+    local event       = Events and Events:WaitForChild("PrivateServerEvent", 10)
+    local equipEvent  = Events and Events:WaitForChild("EquipTroop", 10)
+    local mapsFolder  = RS:WaitForChild("Maps", 10)
+
+    local StrategyData = {}
+
+    local function addAutomation(mapName, mode, difficulty, stratName, creator, requirements, stratUrl)
+        StrategyData[mapName] = StrategyData[mapName] or {}
+        StrategyData[mapName][mode] = StrategyData[mapName][mode] or {}
+        StrategyData[mapName][mode][difficulty] = StrategyData[mapName][mode][difficulty] or {}
+
+        local reqTable = type(requirements) == "table" and requirements or {requirements}
+
+        local builtScript = string.format([[
+            getgenv().UTH_CONTEXT = "match"
+            loadstring(game:HttpGet("%s"))()
+            local stratUrl = "%s"
+            local success, content = pcall(function() return game:HttpGet(stratUrl) end)
+            if success then
+                if _G.LoadExternalStrat then _G.LoadExternalStrat(content) end
+            end
+        ]], CONFIG.SCRIPT_URL, stratUrl)
+
+        StrategyData[mapName][mode][difficulty][stratName] = {
+            Creator = creator,
+            Requirements = reqTable,
+            QueueScript = builtScript,
+        }
+    end
+
+    addAutomation("CastleTown", "Challenge Mode", "Easy", "Chef Strat", "Stew", "Chef", "https://raw.githubusercontent.com/stewingit/UltimateTowerHeroes/refs/heads/main/maps/CastleTown/Chef%20Strat")
+    addAutomation("CastleTown", "Casual Mode", "Hard", "Test Strat", "Stew", {"Brawler", "Sniper", "Medic"}, "https://raw.githubusercontent.com/stewingit/UltimateTowerHeroes/refs/heads/main/TestScript")
+
+    local MapData = {
+        ["CastleTown"] = {lvl = 0}, ["CorporateChaos"] = {lvl = 0}, ["GlowingGlacier"] = {lvl = 0}, ["SneakySwamp"] = {lvl = 0},
+        ["CakeMap"] = {lvl = 0}, ["DoorsMap"] = {lvl = 0}, ["DoorsOutdoor"] = {lvl = 0}, ["KnoddyResort"] = {lvl = 0},
+        ["Grasslands"] = {lvl = 0}, ["ZombieMap"] = {lvl = 0}, ["DisasterHotel"] = {lvl = 0}, ["BurrowBrawl"] = {lvl = 0},
+        ["1Random"] = {lvl = 0}, ["IdolEncore"] = {lvl = 0}, ["MetaverseMadness"] = {lvl = 0}, ["Oddport Academy"] = {lvl = 0},
+        ["RolidayRumble"] = {lvl = 0}, ["TidalTakedown"] = {lvl = 5}, ["VolcanoValley"] = {lvl = 5}, ["CanyonCalamity"] = {lvl = 5},
+        ["DesolateDesert"] = {lvl = 10}, ["FacilityFrenzy"] = {lvl = 10}, ["RadiantReef"] = {lvl = 10},
+        ["Aftermath"] = {lvl = 10}, ["MineMap"] = {lvl = 10}, ["CloudyCatastrophe"] = {lvl = 15}, ["GrandGarage"] = {lvl = 15},
+        ["FruitMap"] = {lvl = 20}, ["FranticForest"] = {lvl = 20}, ["RooftopRumble"] = {lvl = 20},
+        ["SacredShrine"] = {lvl = 25}, ["DrowsyDreamland"] = {lvl = 25}, ["FacilityRaid"] = {lvl = 25}, ["AbandonedAlleyway"] = {lvl = 25},
+        ["SilentSanctuary"] = {lvl = 30}, ["DestinyDawn"] = {lvl = 30}, ["SunkenSanctum"] = {lvl = 30}, ["PiratePanic"] = {lvl = 30},
+        ["AlienAttack"] = {lvl = 35}, ["HideawayHive"] = {lvl = 35}, ["Reflection"] = {lvl = 35},
+        ["TimelessTower"] = {lvl = 40}, ["KingdomChaos"] = {lvl = 40}, ["BlastechBarrage"] = {lvl = 40}, ["BleakBarrens"] = {lvl = 50},
+        ["Contract Map"] = {admin = true}, ["TestMap"] = {admin = true}, ["TestRaidMap"] = {admin = true}, ["HexMap"] = {admin = true},
+        ["EasterIsla"] = {lvl = 5, event = "Easter"}, ["EasterEggland"] = {lvl = 0, event = "Easter"}, ["GleamingGarden"] = {lvl = 0, event = "Easter"},
+        ["HalloweenHavoc"] = {lvl = 0, event = "Halloween"}, ["CreepyCarnival"] = {lvl = 0, event = "Halloween"}, ["MangledManor"] = {lvl = 0, event = "Halloween"},
+        ["GhoulingGraveyard"] = {lvl = 5, event = "Halloween"}, ["PumpkinParanoia"] = {lvl = 5, event = "Halloween"},
+        ["ToyTakeover"] = {lvl = 0, event = "Christmas"}, ["BustlingBakery"] = {lvl = 0, event = "Christmas"}, ["SweetSunrise"] = {lvl = 0, event = "Christmas"},
+        ["FrigidFortress"] = {lvl = 10, event = "Christmas"}, ["SnowySlopes"] = {lvl = 10, event = "Christmas"}, ["FestiveFreight"] = {lvl = 10, event = "Christmas"}
+    }
+
+    local VisualData = {
+        ["BurrowBrawl"] = 17413809054, ["GlowingGlacier"] = 99276142386301, ["Grasslands"] = 71857396603077,
+        ["AbandonedAlleyway"] = 9679707855, ["Aftermath"] = 10841543894, ["AlienAttack"] = 5340246927,
+        ["BlastechBarrage"] = 6385034166, ["BleakBarrens"] = 7156681716, ["BustlingBakery"] = 8064332847,
+        ["CakeMap"] = 17823467330, ["CanyonCalamity"] = 7257103519, ["CloudyCatastrophe"] = 6005570172,
+        ["CorporateChaos"] = 7002605654, ["CreepyCarnival"] = 15136629620, ["DesolateDesert"] = 110081022155565,
+        ["DestinyDawn"] = 15942646798, ["DisasterHotel"] = 16962841471, ["DoorsMap"] = 13175043396,
+        ["DoorsOutdoor"] = 73331144524827, ["DrowsyDreamland"] = 102740713382156, ["FacilityFrenzy"] = 5340485802,
+        ["FacilityRaid"] = 5340485802, ["FestiveFreight"] = 86227024236777, ["FranticForest"] = 133138265678234,
+        ["FrigidFortress"] = 15706263063, ["FruitMap"] = 139425753454172, ["GhoulingGraveyard"] = 7575467874,
+        ["GleamingGarden"] = 9343162968, ["GrandGarage"] = 5484171324, ["HalloweenHavoc"] = 5813531191,
+        ["HideawayHive"] = 126141067416009, ["KingdomChaos"] = 5339965449, ["MangledManor"] = 77259277759258,
+        ["MetaverseMadness"] = 6685610181, ["MineMap"] = 78563631254332, ["Oddport Academy"] = 6887183476,
+        ["PiratePanic"] = 5339993547, ["PumpkinParanoia"] = 15180248072, ["RadiantReef"] = 7575288589,
+        ["Reflection"] = 112921153324770, ["RolidayRumble"] = 15800606155, ["RooftopRumble"] = 5340058381,
+        ["SacredShrine"] = 6982044477, ["SilentSanctuary"] = 5614324268, ["SneakySwamp"] = 10907268607,
+        ["SnowySlopes"] = 79808604284772, ["SunkenSanctum"] = 76205637900076, ["SweetSunrise"] = 11687130031,
+        ["TidalTakedown"] = 14567404319, ["TimelessTower"] = 12956987027, ["ToyTakeover"] = 6106775674,
+        ["VolcanoValley"] = 18668920274, ["ZombieMap"] = 9245434564, ["CastleTown"] = 135423624994431,
+        ["KnoddyResort"] = 5340556771, ["IdolEncore"] = 8744282550
+    }
+
+    local function GetRandomMapIcon()
+        local keys = {}
+        for k, _ in pairs(VisualData) do table.insert(keys, k) end
+        return VisualData[keys[math.random(1, #keys)]]
+    end
+
+    local function GetDataFolder()
+        local gs = Workspace:WaitForChild("GameStuff", 10)
+        local data = gs and gs:WaitForChild("Data", 10)
+        return data and data:FindFirstChild(lp.Name)
+    end
+
+    local function GetPlayerLevel()
+        local data = GetDataFolder()
+        return (data and data:FindFirstChild("Level")) and tonumber(data.Level.Value) or 0
+    end
+
+    local function GetCurrentEvent()
+        local data = GetDataFolder()
+        return (data and data:FindFirstChild("EventID")) and tostring(data.EventID.Value) or "None"
+    end
+
+    local function GetOwnedTroops()
+        local owned = {}
+        local data = GetDataFolder()
+        if data and data:FindFirstChild("Troops") then
+            for _, v in pairs(data.Troops:GetChildren()) do owned[v.Name] = true end
+        end
+        return owned
+    end
+
+    local function GetFilteredMaps()
+        local list = {}
+        local myLvl = GetPlayerLevel()
+        local currentEvent = GetCurrentEvent()
+        for _, mapObj in ipairs(mapsFolder:GetChildren()) do
+            local mapName = mapObj.Name
+            local data = MapData[mapName]
+            if data and not data.admin then
+                local levelPass = myLvl >= (data.lvl or 0)
+                local eventPass = (not data.event) or (currentEvent == data.event)
+                if levelPass and eventPass then table.insert(list, mapName) end
+            elseif not data then
+                table.insert(list, mapName)
+            end
+        end
+        table.sort(list)
+        return list
+    end
+
+    local MatchTab  = Window:CreateTab({name = "Match", icon = "map"})
+    local PlayerTab = Window:CreateTab({name = "Player", icon = "bar-chart-2"})
+
+    local UIReady = false
+    local MapDD, StratDD, SummaryText, StratText, SetupProgress, StartBtn
+    local ModeRow, DiffRow
+
+    local function pick(dd) return dd and dd.value and dd.value[1] end
+    local function getMode() return ModeRow and ModeRow.Get() or "Challenge Mode" end
+    local function getDiff() return DiffRow and DiffRow.Get() or "Easy" end
+
+    local function UpdateStratPanel()
+        if not UIReady then return end
+        local map, mode, diff = pick(MapDD), getMode(), getDiff()
+        local choice = pick(StratDD) or "Manual Play"
+        local data = map and StrategyData[map] and StrategyData[map][mode]
+            and StrategyData[map][mode][diff] and StrategyData[map][mode][diff][choice]
+        if choice == "Manual Play" or not data then
+            StratText:SetTitle("Manual Play")
+            StratText:Set("No strategy selected.")
+            return
+        end
+        local owned, parts = GetOwnedTroops(), {}
+        for _, hero in ipairs(data.Requirements) do
+            table.insert(parts, (owned[hero] and "✅ " or "❌ ") .. hero)
+        end
+        StratText:SetTitle("Strategy: " .. choice)
+        StratText:Set(string.format("Creator: %s\nRequirements: %s", data.Creator, table.concat(parts, "  ")))
+    end
+
+    local function RefreshStrategyList()
+        if not UIReady then return end
+        local map, mode, diff = pick(MapDD), getMode(), getDiff()
+        local options = {"Manual Play"}
+        if map and StrategyData[map] and StrategyData[map][mode] and StrategyData[map][mode][diff] then
+            for _, name in ipairs(toList(StrategyData[map][mode][diff])) do table.insert(options, name) end
+        end
+        StratDD:Refresh(options)
+        StratDD:Set("Manual Play")
+        UpdateStratPanel()
+    end
+
+    local function UpdateSummary()
+        if not UIReady then return end
+        local map = pick(MapDD)
+        SummaryText:Set(string.format("%s  |  %s  |  %s", map or "No map selected", getMode(), getDiff()))
+        RefreshStrategyList()
+    end
+
+    MatchTab:CreateSection({name = "Match Setup"})
+    SummaryText = MatchTab:CreateText({name = "Selected", text = "Loading..."})
+
+    MapDD = MatchTab:CreateDropdown({
+        name = "Map", icon = "map",
+        options = GetFilteredMaps(),
+        flag = "SelectedMap",
+        placeholder = "Select a map",
+        callback = function() UpdateSummary() end,
+    })
+
+    MatchTab:CreateSection({name = "Mode"})
+    ModeRow = CreateRadioRow(MatchTab, "Mode_", {
+        {label = "Challenge", value = "Challenge Mode"},
+        {label = "Casual",    value = "Casual Mode"},
+        {label = "Adventure", value = "Adventure Mode"},
+    }, "Challenge Mode", function() UpdateSummary() end)
+
+    MatchTab:CreateSection({name = "Difficulty"})
+    DiffRow = CreateRadioRow(MatchTab, "Diff_", {
+        {label = "Easy",   value = "Easy"},
+        {label = "Medium", value = "Medium"},
+        {label = "Hard",   value = "Hard"},
+    }, "Easy", function() UpdateSummary() end)
+
+    MatchTab:CreateDivider()
+    MatchTab:CreateSection({name = "Automation"})
+
+    StratDD = MatchTab:CreateDropdown({
+        name = "Automation Strategy", icon = "cpu",
+        options = {"Manual Play"},
+        value = "Manual Play",
+        forgetState = true,
+        callback = function() UpdateStratPanel() end,
+    })
+    StratText = MatchTab:CreateText({name = "Automation Status", text = "Pick a map/mode/difficulty combination."})
+
+    MatchTab:CreateDivider()
+    SetupProgress = MatchTab:CreateProgress({name = "Match Setup", range = {0, 1}, value = 0, text = "Idle"})
+
+    local starting = false
+    StartBtn = MatchTab:CreateButton({
+        name = "Start Match", icon = "play",
+        callback = function()
+            if starting then return end
+            local mode, diffName = getMode(), getDiff()
+            local mapName = pick(MapDD)
+            local stratName = pick(StratDD) or "Manual Play"
+
+            if not mapName then
+                return notify("No Map", "Select a map first.", "circle-alert", 4)
+            end
+            local targetMap = mapsFolder:FindFirstChild(mapName)
+            if not targetMap or not event then
+                return notify("Not Ready", "Map or server event not found.", "circle-alert", 4)
+            end
+
+            local diffValue = (diffName == "Easy" and 2) or (diffName == "Medium" and 3) or 4
+            local data
+            if stratName ~= "Manual Play" then
+                data = StrategyData[mapName] and StrategyData[mapName][mode]
+                    and StrategyData[mapName][mode][diffName] and StrategyData[mapName][mode][diffName][stratName]
+                if data then
+                    local inventory, level = GetOwnedTroops(), GetPlayerLevel()
+                    if #data.Requirements >= 5 and level < 20 then
+                        return notify("Slot Error", "Level 20 required for 5 heroes!", "circle-alert", 5)
+                    end
+                    for _, hero in ipairs(data.Requirements) do
+                        if not inventory[hero] then
+                            return notify("Missing Hero", "You don't own: " .. hero, "user-x", 5)
+                        end
+                    end
+                end
+            end
+
+            starting = true
+            pcall(function() StartBtn:Lock("Starting...") end)
+            task.spawn(function()
+                local total = 5 + (data and #data.Requirements or 0)
+                local done = 0
+                local function step(text)
+                    done += 1
+                    SetupProgress:Set(done)
+                    SetupProgress:SetText(string.format("%s (%d/%d)", text, done, total))
+                end
+                SetupProgress:SetRange(0, total)
+                SetupProgress:Set(0)
+                SetupProgress:SetText("Preparing...")
+
+                local ok, err = pcall(function()
+                    if data then
+                        for i, hero in ipairs(data.Requirements) do
+                            equipEvent:InvokeServer(hero, i)
+                            step("Equipped " .. hero)
+                            task.wait(0.1)
+                        end
+                        if data.QueueScript and qot then qot(data.QueueScript) end
+                    end
+
+                    local icon = (mapName == "1Random") and GetRandomMapIcon() or VisualData[mapName]
+                    notify("Starting Match", string.format("%s | %s | %s", mapName, mode, diffName), icon, 4)
+
+                    event:FireServer("Create", true);                  step("Lobby created");   task.wait(0.2)
+                    event:FireServer("Mode", mode);                    step("Mode set");        task.wait(0.2)
+                    event:FireServer("Update", {Map = targetMap});     step("Map set");         task.wait(0.2)
+                    event:FireServer("Difficulty", diffValue);         step("Difficulty set");  task.wait(0.2)
+                    event:FireServer("Start");                         step("Started")
+                end)
+
+                if not ok then
+                    SetupProgress:SetText("Failed")
+                    notify("Start Failed", tostring(err), "circle-alert", 5)
+                end
+                task.wait(3)
+                if Session.Alive then
+                    SetupProgress:SetRange(0, 1)
+                    SetupProgress:Set(0)
+                    SetupProgress:SetText("Idle")
+                    pcall(function() StartBtn:Unlock() end)
+                end
+                starting = false
+            end)
+        end,
+    })
+
+    PlayerTab:CreateSection({name = "Overview"})
+    local overview = PlayerTab:CreateGroup({direction = "row"})
+    local LevelStat = overview:CreateStat({name = "Level", value = 0})
+    local MoneyStat = overview:CreateStat({name = "Money", value = 0})
+    local EventText = PlayerTab:CreateText({name = "Event", text = "None"})
+
+    PlayerTab:CreateSection({name = "Quests"})
+    local QuestText = PlayerTab:CreateText({name = "Active Quests", text = "None"})
+    PlayerTab:CreateSection({name = "Loadout & Inventory"})
+    local LoadoutText   = PlayerTab:CreateText({name = "Equipped Loadout", text = "None"})
+    local InventoryText = PlayerTab:CreateText({name = "Inventory", text = "None"})
+
+    local function UpdateStats()
+        local dataPath = GetDataFolder()
+        if not dataPath then return end
+        local ev, lvl, mon = dataPath:FindFirstChild("EventID"), dataPath:FindFirstChild("Level"), dataPath:FindFirstChild("Money")
+
+        LevelStat:Set(tonumber(lvl and lvl.Value) or 0)
+        MoneyStat:Set(tonumber(mon and mon.Value) or 0)
+        EventText:Set(tostring(ev and ev.Value or "None"))
+
+        local questText = ""
+        local quests = dataPath:FindFirstChild("MyQuests")
+        if quests then
+            for _, q in pairs(quests:GetChildren()) do
+                questText = questText .. string.format("[%s] %s\n", q:GetAttribute("QuestType") or "N/A", q.Name)
+            end
+        end
+        QuestText:Set(questText ~= "" and questText or "No active quests.")
+
+        local loadoutText = ""
+        local myHero = Workspace:FindFirstChild("MyHero")
+        if myHero then
+            for i = 1, 5 do
+                local slot = myHero:FindFirstChild(tostring(i))
+                if slot and #slot:GetChildren() > 0 then
+                    local hName = "Empty"
+                    for _, c in pairs(slot:GetChildren()) do if c.Name ~= "Skin" then hName = c.Name end end
+                    loadoutText = loadoutText .. string.format("Slot %d: %s\n", i, hName)
+                end
+            end
+        end
+        LoadoutText:Set(loadoutText ~= "" and loadoutText or "None")
+
+        local names = {}
+        local tFolder = dataPath:FindFirstChild("Troops")
+        if tFolder then for _, v in pairs(tFolder:GetChildren()) do table.insert(names, v.Name) end end
+        table.sort(names)
+        InventoryText:Set("Troops: " .. table.concat(names, ", "))
+    end
+
+    PlayerTab:CreateButton({
+        name = "Refresh Stats", icon = "refresh-ccw",
+        callback = function() UpdateStats() notify("Stats Updated", "Player stats refreshed.", "refresh-ccw", 2) end,
+    })
+
+    UIReady = true
+    pcall(UpdateStats)
+    UpdateSummary()
+
+    task.delay(1.5, function() if Session.Alive then UpdateSummary() end end)
+    task.spawn(function()
+        while Session.Alive do
+            task.wait(3)
+            if not Window.hidden then pcall(UpdateStats) end
+        end
+    end)
+end
+
+local function BuildMatch()
+    local S = {
+        SessionLogs = {}, TroopCounts = {}, TroopMapping = {}, GlobalAbilityCounts = {}, UnitIDToHero = {},
+        LoadedLogsRef = {}, LoadedBody = "", LoadedName = "",
+        StrategyName = "",
+        IsAutoQueue = false, IsRecording = false, IsResetting = false,
+        LastLoggedAutoSkip = nil, LogQueue = {},
+    }
+
+    local info = pGui:WaitForChild("Menu", 10) and pGui.Menu:WaitForChild("Info", 10)
+    local autoSkipObj = info and info:WaitForChild("AutoSkip", 10)
+    local TroopFolder = Workspace:WaitForChild("Troop", 10)
+    local Events = RS:WaitForChild("Events", 10)
+    local TroopEvent = Events and Events:WaitForChild("TroopEvent", 10)
+    if not (autoSkipObj and TroopFolder and TroopEvent) then
+        notify("Match Setup Failed", "Couldn't find the match objects. Set CONFIG.CONTEXT = \"lobby\" if you're in the lobby.", "circle-alert", 6)
+        return
+    end
+
+    if makefolder then pcall(makefolder, CONFIG.FOLDER) end
+
+    local function toStr(val)
+        return (typeof(val) == "Instance" and (val:IsA("ValueBase") and tostring(val.Value) or val.Name)) or tostring(val)
+    end
+
+    local function getFinalCost(raw, unitStats, isAbility)
+        local base = typeof(raw) == "function" and (select(2, pcall(raw)) or 0) or tonumber(raw) or 0
+        if base == 0 then return nil end
+        local mult = 1
+        if not isAbility then
+            local bf = unitStats:FindFirstChild("BonusFolder")
+            if bf then
+                for _, buff in ipairs(bf:GetChildren()) do
+                    local c = buff:FindFirstChild("Cost")
+                    if c and c:IsA("ValueBase") then mult = mult * (tonumber(c.Value) or 1) end
+                end
+            end
+        end
+        return tostring(math.floor(base * mult))
+    end
+
+    local unitDataCache, unitDataMiss = {}, {}
+    local function findUnitData(name)
+        if unitDataCache[name] then return unitDataCache[name] end
+        if unitDataMiss[name] and os.clock() - unitDataMiss[name] < 5 then return nil end
+        local paths = {RS:FindFirstChild("Troops"), RS:FindFirstChild("Units"), RS}
+        for _, p in ipairs(paths) do
+            if not p then continue end
+            local obj = (p.Name == name and p) or p:FindFirstChild(name, true)
+            if obj and obj:IsA("ModuleScript") then
+                local s, data = pcall(require, obj)
+                if s and type(data) == "table" and (data.Stages or data.Levels or data.Upgrades) then
+                    unitDataCache[name] = data
+                    return data
+                end
+            end
+        end
+        unitDataMiss[name] = os.clock()
+        return nil
+    end
+
+    local function getAbilityCost(heroName, unitInst)
+        local data = findUnitData(heroName)
+        local stats = unitInst and unitInst:FindFirstChild("Stats")
+        if data and stats then
+            local level = stats:FindFirstChild("Level") and stats.Level.Value or 1
+            local stg = data.Stages or data.Levels or data.Upgrades
+            local cur = stg[level]
+            if cur and cur.SpecialAbility then
+                local raw = cur.SpecialAbility.Cost or cur.SpecialAbility.Price
+                return tonumber(getFinalCost(raw, stats, true)) or 0
+            end
+        end
+        return 0
+    end
+
+    local function countMapping()
+        local n = 0
+        for _ in pairs(S.TroopMapping) do n += 1 end
+        return n
+    end
+
+    local HeroTab   = Window:CreateTab({name = "Heroes",  icon = "bar-chart-2"})
+    local RecordTab = Window:CreateTab({name = "Record",  icon = "video"})
+    local LibTab    = Window:CreateTab({name = "Library", icon = "folder"})
+    local RunTab    = Window:CreateTab({name = "Run",     icon = "play"})
+
+    local STELLA_SETTINGS = {
+        [1] = {Base = 20,  Penalty = 1},   [2] = {Base = 57,  Penalty = 3},
+        [3] = {Base = 102, Penalty = 3.5}, [4] = {Base = 169, Penalty = 5},
+        [5] = {Base = 234, Penalty = 7.9},
+    }
+
+    HeroTab:CreateSection({name = "Overview"})
+    local heroOverview = HeroTab:CreateGroup({direction = "row"})
+    local PlacedStat = heroOverview:CreateStat({name = "Heroes", value = 0})
+    local ReadyStat  = heroOverview:CreateStat({name = "Abilities Ready", value = 0})
+    HeroTab:CreateSection({name = "Details"})
+    local HeroConsole = HeroTab:CreateConsole({name = "Hero Stats", height = 320, maxLines = 400, text = "No heroes placed."})
+    local lastHeroText = ""
+
+    local function refreshStatsUI()
+        local troops = TroopFolder:GetChildren()
+        local sTime = Workspace:GetServerTimeNow()
+        local groups, groupOrder = {}, {}
+        local readyCount = 0
+
+        for i, unit in ipairs(troops) do
+            local stats = unit:FindFirstChild("Stats")
+            if stats then
+                local unitModule = toStr(stats:FindFirstChild("Module") or unit)
+                local level = stats:FindFirstChild("Level") and stats.Level.Value or 1
+                local targetType = toStr(stats:FindFirstChild("TargetType") or "N/A")
+                local spawner = stats:FindFirstChild("Spawner")
+                local isDrawing = (spawner and spawner.Value) or (unitModule == "Drawing")
+                local status, cooldownText = "MAX", ""
+
+                if isDrawing then
+                    local hpVal = stats:FindFirstChild("Health")
+                    local currentHP = hpVal and hpVal.Value or 0
+                    local maxHP = (hpVal and hpVal:FindFirstChild("BaseHealth")) and hpVal.BaseHealth.Value or 1
+                    local ownerLevel = 1
+                    if spawner and spawner.Value then
+                        local ownerStats = spawner.Value:FindFirstChild("Stats")
+                        if ownerStats and ownerStats:FindFirstChild("Level") then ownerLevel = ownerStats.Level.Value end
+                    end
+                    local config = STELLA_SETTINGS[ownerLevel] or STELLA_SETTINGS[5]
+                    local missingHP = math.max(0, maxHP - currentHP)
+                    local abilityPrice = math.floor(config.Base + (missingHP * config.Penalty))
+                    status = string.format("HP: %d/%d | Cost: %d (Stella Lvl %d)", currentHP, maxHP, abilityPrice, ownerLevel)
+                    targetType = "N/A"
+                else
+                    local data = findUnitData(unitModule)
+                    if data then
+                        local stg = data.Stages or data.Levels or data.Upgrades
+                        local cur, nxt = stg[level], stg[level + 1]
+                        if cur and cur.SpecialAbility then
+                            local sa = cur.SpecialAbility
+                            local cost = getFinalCost(sa.Cost or sa.Price, stats, true)
+                            status = ("%s [%s]"):format(sa.Title or "Ability", cost or "Active")
+                            local aTick = stats:FindFirstChild("AbilityTick")
+                            if aTick then
+                                local cd = sa.Cooldown or sa.CD or sa.Duration or 0
+                                local remaining = math.max(0, (aTick.Value + cd) - sTime)
+                                if remaining > 0 then
+                                    local remRounded = math.floor(remaining * 2) / 2
+                                    cooldownText = ("\n   > ⏳ (%.1fs / %ds)"):format(remRounded, cd)
+                                else
+                                    cooldownText = ("\n   > ✅ (READY / %ds)"):format(cd)
+                                    readyCount += 1
+                                end
+                            end
+                        elseif nxt then
+                            status = ("Upgrade [%s]"):format(getFinalCost(nxt.Cost or nxt.Price, stats, false) or "???")
+                        end
+                    end
+                end
+
+                local exactKey = string.format("%s_%s_%s_%s_%s", unitModule, level, status, cooldownText, targetType)
+                if not groups[exactKey] then
+                    groups[exactKey] = {indices = {}, unitModule = unitModule, level = level, status = status, cooldownText = cooldownText, targetType = targetType}
+                    table.insert(groupOrder, exactKey)
+                end
+                table.insert(groups[exactKey].indices, i)
+            end
+        end
+
+        local blocks = {}
+        for _, key in ipairs(groupOrder) do
+            local g = groups[key]
+            table.insert(blocks, ("[%s] %s (Lvl %s)\nStatus: %s%s\nTarget: %s"):format(
+                table.concat(g.indices, ","), g.unitModule, tostring(g.level), g.status, g.cooldownText, g.targetType))
+        end
+        local text = #blocks > 0 and table.concat(blocks, "\n\n") or "No heroes placed."
+
+        PlacedStat:Set(#troops)
+        ReadyStat:Set(readyCount)
+        if text ~= lastHeroText then
+            lastHeroText = text
+            HeroConsole:Set(text)
+        end
+    end
+
+    task.spawn(function()
+        while Session.Alive do
+            if not Window.hidden then pcall(refreshStatsUI) end
+            task.wait(0.5)
+        end
+    end)
+
+    RunTab:CreateSection({name = "Loaded Strategy"})
+    local LoadedText = RunTab:CreateText({name = "Nothing loaded", text = "Load a strategy from the Library tab."})
+    local RunProgress = RunTab:CreateProgress({name = "Execution Progress", range = {0, 1}, value = 0, text = "Idle"})
+    local runRow = RunTab:CreateGroup({direction = "row"})
+    RunTab:CreateSection({name = "Execution Steps"})
+    local StepConsole = RunTab:CreateConsole({name = "Steps", height = 300, maxLines = 1000, text = ""})
+
+    local function redrawSteps()
+        local lines, done = {}, 0
+        for _, d in ipairs(S.LoadedLogsRef) do
+            if d.Ticked then done += 1 end
+            table.insert(lines, (d.Ticked and "✅ " or "⬜ ") .. d.Text)
+        end
+        StepConsole:Set(table.concat(lines, "\n"))
+        local total = #S.LoadedLogsRef
+        RunProgress:SetRange(0, math.max(total, 1))
+        RunProgress:Set(done)
+        if total == 0 then
+            RunProgress:SetText("Idle")
+        elseif done >= total then
+            RunProgress:SetText("Complete (" .. done .. "/" .. total .. ")")
+        elseif S.IsAutoQueue then
+            RunProgress:SetText(("Running  %d/%d"):format(done, total))
+        else
+            RunProgress:SetText(("Ready  %d steps"):format(total))
+        end
+    end
+
+    local function autoTickLog(actionCode)
+        for _, data in ipairs(S.LoadedLogsRef) do
+            if not data.Ticked and data.Code:find(actionCode, 1, true) then
+                data.Ticked = true
+                redrawSteps()
+                break
+            end
+        end
+    end
+
+    local function getEmojiPrefix(line)
+        if line:find('QueuePlace') then return "🟢 Place"
+        elseif line:find('QueueUpgrade') then return "🔵 Upgrade"
+        elseif line:find('QueueSell') then return "🔴 Sell"
+        elseif line:find('QueueBulkSell') then return "🟥 Bulk Sell"
+        elseif line:find('QueueAbility') then return "🟠 Ability"
+        elseif line:find('QueueTarget') then return "🎯 Target"
+        elseif line:find('QueueWaitMana') then return "🟡 Wait Mana"
+        elseif line:find('QueueSkip') then return "⏩ Manual Skip"
+        elseif line:find('EnableAutoSkip') then return "🔁 AutoSkip: ON"
+        elseif line:find('DisableAutoSkip') then return "🔁 AutoSkip: OFF"
+        elseif line:find('VoteMode') then return "🗳️ Vote"
+        elseif line:find('QueueBulk') then return "🟣 Bulk"
+        else return "⚙️ Action" end
+    end
+
+    local function parseScript(content, name)
+        S.LoadedLogsRef = {}
+        local body = {}
+        for line in content:gmatch("[^\r\n]+") do
+            if not line:find("loadstring") and not line:find("StartAutomation") and line:match("%S") then
+                local prefix = getEmojiPrefix(line)
+                local detail = line:match('"(.-)"') or line:match('%((%d+)%)') or ""
+                if line:find('QueuePlace') then detail = line:match('QueuePlace%(\"(.-)\"') or "" end
+                table.insert(S.LoadedLogsRef, {
+                    Code = line, Text = detail ~= "" and (prefix .. " " .. detail) or prefix, Ticked = false,
+                })
+                table.insert(body, line)
+            end
+        end
+        S.LoadedBody = table.concat(body, "\n")
+        S.LoadedName = name or "Strategy"
+        S.IsAutoQueue = false
+        LoadedText:SetTitle("Loaded: " .. S.LoadedName)
+        LoadedText:Set(#S.LoadedLogsRef .. " steps ready to run.")
+        redrawSteps()
+    end
+
+    local function startExecution()
+        if S.LoadedBody == "" then
+            return notify("Nothing Loaded", "Load a strategy from the Library tab first.", "circle-alert", 3)
+        end
+        S.IsAutoQueue = true
+        redrawSteps()
+        notify("Executed", "Strategy started.", "play", 3)
+        local scriptToRun = 'loadstring(game:HttpGet("' .. CONFIG.ENGINE_LINK .. '"))()\n' .. S.LoadedBody .. '\nStartAutomation()'
+        local f, err = loadstring(scriptToRun)
+        if f then
+            task.spawn(f)
+        else
+            S.IsAutoQueue = false
+            redrawSteps()
+            notify("Script Error", tostring(err), "circle-alert", 5)
+        end
+    end
+
+    runRow:CreateButton({name = "Start Execution", icon = "play", callback = startExecution})
+    runRow:CreateButton({
+        name = "Copy Script", icon = "clipboard",
+        callback = function()
+            if S.LoadedBody == "" then return notify("Nothing Loaded", "Nothing to copy.", "circle-alert", 2) end
+            if setclipboard then
+                setclipboard('loadstring(game:HttpGet("' .. CONFIG.ENGINE_LINK .. '"))()\n\n' .. S.LoadedBody .. '\n\nStartAutomation()')
+                notify("Copied", "Strategy script copied to clipboard.", "clipboard", 2)
+            end
+        end,
+    })
+
+    _G.LoadExternalStrat = function(content)
+        parseScript(content, "External Strategy")
+        startExecution()
+    end
+
+    local fileMap = {}
+    LibTab:CreateSection({name = "Saved Strategies"})
+    local FileDD = LibTab:CreateDropdown({
+        name = "Strategy File", icon = "file", options = {}, placeholder = "No files found", forgetState = true,
+    })
+    local libRow = LibTab:CreateGroup({direction = "row"})
+
+    local function refreshFiles()
+        fileMap = {}
+        if listfiles then
+            local ok, files = pcall(listfiles, CONFIG.FOLDER)
+            if ok and files then
+                for _, file in ipairs(files) do
+                    local clean = tostring(file):match("([^/\\]+)%.lua$")
+                    if clean then fileMap[clean] = file end
+                end
+            end
+        end
+        local names = toList(fileMap)
+        FileDD:Refresh(names)
+        return #names
+    end
+
+    libRow:CreateButton({
+        name = "Load", icon = "file-check",
+        callback = function()
+            local name = FileDD.value and FileDD.value[1]
+            local path = name and fileMap[name]
+            if not path then return notify("No File", "Pick a strategy file first.", "circle-alert", 3) end
+            local ok, content = pcall(readfile, path)
+            if not ok then return notify("Read Failed", tostring(content), "circle-alert", 4) end
+            parseScript(content, name)
+            notify("Loaded", name .. " is in the Run tab.", "file-check", 3)
+            pcall(function() Window:Navigate(RunTab) end)
+        end,
+    })
+    libRow:CreateButton({
+        name = "Refresh", icon = "refresh-ccw",
+        callback = function()
+            local n = refreshFiles()
+            notify("Files Refreshed", n .. " strategies found.", "refresh-ccw", 2)
+        end,
+    })
+
+    RecordTab:CreateSection({name = "New Strategy"})
+    local NameInput = RecordTab:CreateInput({
+        name = "Name Strategy", placeholder = "e.g., GodlyStrat1...", forgetState = true,
+        callback = function(text) S.StrategyName = text end,
+    })
+    local StatusText = RecordTab:CreateText({name = "Status", text = "Not recording."})
+    local AutoResetToggle = RecordTab:CreateToggle({
+        name = "Auto-reset on Retry", flag = "UTH_AutoReset", value = true,
+        description = "Wipe the recording (and sell troops) when you press Retry.",
+    })
+
+    local recRow1 = RecordTab:CreateGroup({direction = "row"})
+    local recRow2 = RecordTab:CreateGroup({direction = "row"})
+
+    RecordTab:CreateSection({name = "Action Log"})
+    local recStats = RecordTab:CreateGroup({direction = "row"})
+    local ActionsStat = recStats:CreateStat({name = "Actions", value = 0})
+    local PlacedRecStat = recStats:CreateStat({name = "Placed", value = 0})
+    local RecordConsole = RecordTab:CreateConsole({name = "Recorded Actions", height = 240, follow = true, maxLines = 500, text = ""})
+
+    local function updateRecordStats()
+        ActionsStat:Set(#S.SessionLogs)
+        PlacedRecStat:Set(countMapping())
+    end
+
+    local function buildSavedScript()
+        return 'loadstring(game:HttpGet("' .. CONFIG.ENGINE_LINK .. '"))()\n\n' .. table.concat(S.SessionLogs, "\n") .. '\n\nStartAutomation()'
+    end
+
+    local function clearAllData()
+        S.IsResetting = true
+        for t, _ in pairs(S.TroopMapping) do
+            if t and t.Parent then task.spawn(function() TroopEvent:FireServer("Sell", t) end) end
+        end
+
+        S.SessionLogs = {}; S.TroopCounts = {}; S.TroopMapping = {}; S.GlobalAbilityCounts = {}
+        S.UnitIDToHero = {}; S.LogQueue = {}
+        S.IsAutoQueue = false; S.IsRecording = false; S.StrategyName = ""
+        S.LoadedLogsRef = {}; S.LoadedBody = ""; S.LoadedName = ""
+
+        pcall(function() NameInput:Unlock() end)
+        pcall(function() NameInput:Set("", true) end)
+        StatusText:Set("Not recording.")
+        RecordConsole:Clear()
+        updateRecordStats()
+        LoadedText:SetTitle("Nothing loaded")
+        LoadedText:Set("Load a strategy from the Library tab.")
+        redrawSteps()
+
+        notify("Cleared", "Logs wiped and troops sold.", "trash", 3)
+        task.delay(1, function() S.IsResetting = false end)
+    end
+
+    recRow1:CreateButton({
+        name = "Begin Recording", icon = "video",
+        callback = function()
+            if S.IsRecording then return notify("Already Recording", "Logging: " .. S.StrategyName, "video", 2) end
+            if S.StrategyName == "" then return notify("Error", "Please enter a name!", "circle-alert", 3) end
+            S.IsRecording = true
+            pcall(function() NameInput:Lock("Recording") end)
+            StatusText:Set("Recording: " .. S.StrategyName)
+            notify("Recording Started", "Logging: " .. S.StrategyName, "video", 3)
+        end,
+    })
+    recRow1:CreateButton({name = "Reset", icon = "trash", callback = clearAllData})
+
+    recRow2:CreateButton({
+        name = "Save to File", icon = "save",
+        callback = function()
+            if S.StrategyName == "" or not S.IsRecording then
+                return notify("Error", "Start recording with a name first.", "circle-alert", 3)
+            end
+            local ok, err = pcall(writefile, CONFIG.FOLDER .. "/" .. S.StrategyName .. ".lua", buildSavedScript())
+            if not ok then return notify("Save Failed", tostring(err), "circle-alert", 4) end
+            notify("Saved", "Saved as " .. S.StrategyName .. ".lua", "save", 3)
+            refreshFiles()
+        end,
+    })
+    recRow2:CreateButton({
+        name = "Copy Code", icon = "clipboard",
+        callback = function()
+            if #S.SessionLogs == 0 then return notify("Nothing Recorded", "No actions logged yet.", "circle-alert", 2) end
+            if setclipboard then
+                setclipboard(buildSavedScript())
+                notify("Copied", "Strategy script copied to clipboard.", "clipboard", 2)
+            end
+        end,
+    })
+
+    table.insert(Session.Connections, RunService.Heartbeat:Connect(function()
+        if #S.LogQueue == 0 then return end
+        local lines = {}
+        while #S.LogQueue > 0 do
+            local item = table.remove(S.LogQueue, 1)
+            table.insert(S.SessionLogs, item[2])
+            table.insert(lines, item[1])
+        end
+        RecordConsole:Append(table.concat(lines, "\n"))
+        updateRecordStats()
+    end))
+
+    local function safeAddLog(text, code)
+        if not S.IsRecording then return end
+        table.insert(S.LogQueue, {text, code})
+    end
+
+    table.insert(Session.Connections, autoSkipObj.Changed:Connect(function(val)
+        if val ~= S.LastLoggedAutoSkip then
+            S.LastLoggedAutoSkip = val
+            local cmd = val and "EnableAutoSkip()" or "DisableAutoSkip()"
+            if S.IsAutoQueue then autoTickLog(cmd) end
+            safeAddLog(val and "🔁 AutoSkip: ON" or "🔁 AutoSkip: OFF", cmd)
+        end
+    end))
+
+    genv.UTH_RemoteHandler = function(remoteName, args)
+        if not Session.Alive then return end
+
+        if remoteName == "ResultEvent" and args[1] == "Retry" then
+            if AutoResetToggle.value then clearAllData() end
+
+        elseif remoteName == "TroopPlace" and typeof(args[2]) == "Vector3" then
+            local rawName = args[1].Name
+            local pos = args[2]
+            local unitID = args[3]
+            local cleanName = rawName:gsub(" Point", "")
+
+            S.UnitIDToHero[unitID] = cleanName
+            S.TroopCounts[cleanName] = (S.TroopCounts[cleanName] or 0) + 1
+            local idx = S.TroopCounts[cleanName]
+            local exactCmd = string.format('QueuePlace("%s", %.4f, %.4f, %.4f)', cleanName, pos.X, pos.Y, pos.Z)
+
+            if S.IsAutoQueue then autoTickLog('QueuePlace("' .. cleanName .. '"') end
+            safeAddLog("🟢 Place " .. cleanName, exactCmd)
+
+            task.delay(0.5, function()
+                for _, v in ipairs(TroopFolder:GetChildren()) do
+                    if not S.TroopMapping[v] and (v:GetAttribute("UnitSeed") == unitID or (v:GetModelCFrame().Position - pos).Magnitude < 5) then
+                        S.TroopMapping[v] = {name = cleanName, index = idx, level = 1, abilityCount = 0, id = unitID}
+                        break
+                    end
+                end
+            end)
+
+        elseif remoteName == "UpdateTargeting" then
+            local unit = args[1]
+            local d = S.TroopMapping[unit]
+            if d then
+                local exactCmd = string.format('QueueTarget("%s", %d, "%s")', d.name, d.index, args[2])
+                if S.IsAutoQueue then autoTickLog(exactCmd) end
+                safeAddLog("🎯 Target " .. args[2], exactCmd)
+            end
+
+        elseif remoteName == "TroopEvent" then
+            if S.IsResetting then return end
+
+            local act, unitIdentifier = args[1], args[2]
+            local d, actualUnit
+            if typeof(unitIdentifier) == "number" then
+                for unit, data in pairs(S.TroopMapping) do
+                    if data.id == unitIdentifier then d = data; actualUnit = unit; break end
+                end
+            else
+                d = S.TroopMapping[unitIdentifier]; actualUnit = unitIdentifier
+            end
+
+            if d then
+                if act == "Upgrade" then
+                    d.level = d.level + 1
+                    local cmd = string.format('QueueUpgrade("%s", %d, %d)', d.name, d.index, d.level)
+                    if S.IsAutoQueue then autoTickLog(cmd) end
+                    safeAddLog(string.format("🔵 Upgrade %s %d", d.name, d.index), cmd)
+
+                elseif act == "Ability" then
+                    S.GlobalAbilityCounts[d.name] = (S.GlobalAbilityCounts[d.name] or 0) + 1
+                    local cost = getAbilityCost(d.name, actualUnit)
+                    d.abilityCount = d.abilityCount + 1
+                    local manaCmd = string.format('QueueWaitMana(%d)', cost)
+                    local abCmd = string.format('QueueAbility("%s", %d)', d.name, d.index)
+
+                    if S.IsAutoQueue then autoTickLog(manaCmd); autoTickLog(abCmd) end
+                    safeAddLog("🟡 Wait Mana: " .. cost, manaCmd)
+                    safeAddLog("🟠 " .. d.name .. " Ability", abCmd)
+
+                elseif act == "Sell" then
+                    local cmd = string.format('QueueSell("%s", %d)', d.name, d.index)
+                    if S.IsAutoQueue then autoTickLog(cmd) end
+                    safeAddLog("🔴 Sell " .. d.name, cmd)
+
+                    if typeof(unitIdentifier) == "Instance" then
+                        S.TroopMapping[unitIdentifier] = nil
+                    else
+                        for k, v in pairs(S.TroopMapping) do if v.id == unitIdentifier then S.TroopMapping[k] = nil break end end
+                    end
+
+                elseif act == "BulkSell" then
+                    local heroType = args[3]
+                    local cmd = string.format('QueueBulkSell("%s")', heroType)
+                    if S.IsAutoQueue then autoTickLog(cmd) end
+                    safeAddLog("🟥 Bulk Sell " .. heroType, cmd)
+                    for unit, data in pairs(S.TroopMapping) do if data.name == heroType then S.TroopMapping[unit] = nil end end
+
+                elseif act == "BulkUp" then
+                    local bn = args[3] or "Unknown"
+                    local cost = 0
+                    local dataRef = findUnitData(bn)
+                    local stg = dataRef and (dataRef.Stages or dataRef.Levels or dataRef.Upgrades)
+
+                    for unit, dInfo in pairs(S.TroopMapping) do
+                        if dInfo.name == bn then
+                            local nl = dInfo.level + 1
+                            if stg and stg[nl] then
+                                local raw = stg[nl].Cost or stg[nl].Price
+                                local stats = unit:FindFirstChild("Stats")
+                                if stats then cost = cost + (tonumber(getFinalCost(raw, stats, false)) or 0) end
+                            end
+                            dInfo.level = nl
+                        end
+                    end
+                    local cmd = string.format('QueueBulk("%s")', bn)
+                    if S.IsAutoQueue then
+                        if cost > 0 then autoTickLog(string.format('QueueWaitMana(%d)', cost)) end
+                        autoTickLog(cmd)
+                    end
+                    if cost > 0 then safeAddLog("🟡 Wait Mana: " .. cost, string.format('QueueWaitMana(%d)', cost)) end
+                    safeAddLog("🟣 Bulk " .. bn, cmd)
+                end
+            end
+
+        elseif remoteName == "SkipWave" then
+            if autoSkipObj.Value == false then
+                if S.IsAutoQueue then autoTickLog("QueueSkip()") end
+                safeAddLog("⏩ Manual Skip", "QueueSkip()")
+            end
+
+        elseif remoteName == "ModeVote" then
+            local cmd = string.format('VoteMode("%s")', tostring(args[1]))
+            if S.IsAutoQueue then autoTickLog(cmd) end
+            safeAddLog("🗳️ Vote: " .. tostring(args[1]), cmd)
+        end
+    end
+
+    if not genv.UTH_HookInstalled then
+        genv.UTH_HookInstalled = true
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" then
+                local handler = genv.UTH_RemoteHandler
+                if handler then
+                    local args = {...}
+                    local remoteName = tostring(self)
+                    task.spawn(function() pcall(handler, remoteName, args) end)
+                end
+            end
+            return oldNamecall(self, ...)
+        end)
+    end
+
+    refreshFiles()
+    updateRecordStats()
+end
+
+if Context == "match" then
+    BuildMatch()
+else
+    BuildLobby()
+end
